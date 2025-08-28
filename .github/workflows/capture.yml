@@ -30,6 +30,10 @@ on:
         description: "最大ページ数（総数のブレーキ）"
         required: false
         default: "300"
+      filename_mode:
+        description: "ファイル名モード: flat=フラット / tree=ディレクトリ構造保持"
+        required: false
+        default: "flat"
       scale:
         description: "解像度スケール（1=等倍, 2=2倍, 3=3倍）"
         required: false
@@ -73,6 +77,7 @@ jobs:
           MAX_DEPTH: ${{ inputs.max_depth }}
           MAX_PAGES: ${{ inputs.max_pages }}
           SCALE: ${{ inputs.scale }}
+          FILENAME_MODE: ${{ inputs.filename_mode }}
           WAIT_BETWEEN_MS: ${{ inputs.wait_between_ms }}
           OUT_DIR: public
 
