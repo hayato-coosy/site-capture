@@ -1,5 +1,3 @@
-name: Capture & Publish (simple)
-
 on:
   workflow_dispatch:
     inputs:
@@ -14,59 +12,28 @@ on:
         description: "フルページ（true/false）"
         required: false
         default: "true"
+      # ↓ 追加
+      same_host_only:
+        description: "同一ホストのみ巡回（true/false）"
+        required: false
+        default: "true"
+      path_prefix_mode:
+        description: "開始URLのパス配下のみ: start / 制限なし: none"
+        required: false
+        default: "start"
       max_depth:
         description: "最大深さ（0=開始ページのみ）"
         required: false
-        default: "0"
+        default: "2"
       max_pages:
-        description: "最大ページ数"
+        description: "最大ページ数（総数のブレーキ）"
         required: false
-        default: "50"
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-jobs:
-  run:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
-
-      - name: Install deps
-        run: |
-          npm install --no-audit --no-fund
-          npx playwright install --with-deps
-
-      - name: Capture screenshots
-        run: npm run capture
-        env:
-          START_URLS: ${{ inputs.start_urls }}
-          DEVICES: ${{ inputs.devices }}
-          FULL_PAGE: ${{ inputs.full_page }}
-          MAX_DEPTH: ${{ inputs.max_depth }}
-          MAX_PAGES: ${{ inputs.max_pages }}
-          OUT_DIR: public
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: public
-          
-
-  deploy:
-    needs: run
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
-        
+        default: "300"
+      scale:
+        description: "解像度スケール（1=等倍, 2=2倍）"
+        required: false
+        default: "2"
+      wait_between_ms:
+        description: "撮影間隔ms（ブロック回避用）"
+        required: false
+        default: "200"
