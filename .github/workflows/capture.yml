@@ -1,4 +1,4 @@
-name: Capture & Publish (safe)
+name: Capture & Publish (safe + dedup)
 
 on:
   workflow_dispatch:
@@ -82,6 +82,20 @@ on:
         required: false
         default: "0"
 
+      # --- レイアウト重複検知 ---
+      layout_dedup:
+        description: "同一レイアウトは最初の1件だけ保存（true/false）"
+        required: false
+        default: "true"
+      layout_sample_limit:
+        description: "レイアウト比較に使うDOM要素数（上から）"
+        required: false
+        default: "200"
+      layout_ignore_url_patterns:
+        description: "デデュプを無効にしたいURLパターン（カンマ区切り）"
+        required: false
+        default: ""
+
       # --- 出力先 ---
       publish_target:
         description: "出力先: artifact（内部配布） | pages（公開）"
@@ -140,6 +154,11 @@ jobs:
           GOTO_TIMEOUT_MS: ${{ inputs.goto_timeout_ms }}
           RETRIES: ${{ inputs.retries }}
           EXTRA_WAIT_MS: ${{ inputs.extra_wait_ms }}
+
+          # レイアウト重複検知
+          LAYOUT_DEDUP: ${{ inputs.layout_dedup }}
+          LAYOUT_SAMPLE_LIMIT: ${{ inputs.layout_sample_limit }}
+          LAYOUT_IGNORE_URL_PATTERNS: ${{ inputs.layout_ignore_url_patterns }}
 
       # 出力：artifact（内部配布）
       - name: Upload artifact (public/)
