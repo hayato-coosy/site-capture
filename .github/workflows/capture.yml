@@ -1,3 +1,5 @@
+name: Capture & Publish (simple)
+
 on:
   workflow_dispatch:
     inputs:
@@ -12,7 +14,6 @@ on:
         description: "フルページ（true/false）"
         required: false
         default: "true"
-      # ↓ 追加
       same_host_only:
         description: "同一ホストのみ巡回（true/false）"
         required: false
@@ -30,10 +31,66 @@ on:
         required: false
         default: "300"
       scale:
-        description: "解像度スケール（1=等倍, 2=2倍）"
+        description: "解像度スケール（1=等倍, 2=2倍, 3=3倍）"
         required: false
         default: "2"
       wait_between_ms:
         description: "撮影間隔ms（ブロック回避用）"
         required: false
         default: "200"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps
+
+      - name: Capture screenshots
+        run: npm run capture
+        env:
+          START_URLS: ${{ inputs.start_urls }}
+          DEVICES: ${{ inputs.devices }}
+          FULL_PAGE: ${{ inputs.full_page }}
+          SAME_HOST_ONLY: ${{ inputs.same_host_only }}
+          PATH_PREFIX_MODE: ${{ inputs.path_prefix_mode }}
+          MAX_DEPTH: ${{ inputs.max_depth }}
+          MAX_PAGES: ${{ inputs.max_pages }}
+          SCALE: ${{ inputs.scale }}
+          WAIT_BETWEEN_MS: ${{ inputs.wait_between_ms }}
+          OUT_DIR: public
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: run
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
