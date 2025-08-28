@@ -3,177 +3,69 @@ import { chromium, devices as pwDevices } from "playwright";
 import fs from "fs/promises";
 import path from "path";
 
-const env = (k, d=null) => (process.env[k] ?? d);
-const START_URLS = (env("START_URLS", "")).split(",").map(s=>s.trim()).filter(Boolean);
-if (START_URLS.length === 0) throw new Error("環境変数 START_URLS に開始URLを指定してください（カンマ区切り可）");
+const START_URLS = (process.env.START_URLS ?? "").split(",").map(s=>s.trim()).filter(Boolean);
+if (!START_URLS.length) throw new Error("START_URLS を指定してください（カンマ区切り可）");
 
-const FULL_PAGE = (env("FULL_PAGE", "true").toLowerCase() === "true");
-const DEVICES_RAW = env("DEVICES", "Desktop 1440x900,iPhone 13,iPad Air")
-  .split(",").map(s=>s.trim()).filter(Boolean);
-const SAME_HOST_ONLY = (env("SAME_HOST_ONLY", "true").toLowerCase() === "true");
-const MAX_DEPTH = parseInt(env("MAX_DEPTH", "2"), 10);
-const MAX_PAGES = parseInt(env("MAX_PAGES", "50"), 10);
-const WAIT_BETWEEN_MS = parseInt(env("WAIT_BETWEEN_MS", "300"), 10);
-const OUT_DIR = env("OUT_DIR", "screenshots");
-const PATH_PREFIX_MODE = (env("PATH_PREFIX_MODE","start").toLowerCase()); // "start" | "none"
-// start: 開始URLのパス配下のみ（例: /docs/ 以下だけ） / none: 制限なし（ホスト制限はSAME_HOST_ONLYに従う）
+const FULL_PAGE = (process.env.FULL_PAGE ?? "true").toLowerCase()==="true";
+const DEVICES = (process.env.DEVICES ?? "Desktop 1440x900,iPhone 13").split(",").map(s=>s.trim()).filter(Boolean);
+const MAX_DEPTH = parseInt(process.env.MAX_DEPTH ?? "0", 10);   // シンプル版なので既定0=開始URLのみ
+const MAX_PAGES = parseInt(process.env.MAX_PAGES ?? "50", 10);
+const OUT_DIR = process.env.OUT_DIR ?? "public"; // ← Pagesでそのまま配れるよう public に
 
-// 文字列 "1280x800" or "375x812" をパース
-function parseWxH(s){
-  const m = s.match(/(\d+)\s*x\s*(\d+)/i);
-  return m ? {width:+m[1], height:+m[2]} : null;
-}
+const parseWxH = s => { const m = s.match(/(\d+)\s*x\s*(\d+)/i); return m?{w:+m[1],h:+m[2]}:null; };
+const vpList = DEVICES.map(d=>{
+  if (pwDevices[d]) return {label:d, preset: pwDevices[d]};
+  const wh=parseWxH(d)||parseWxH(d.replace(/[^\dx]/gi,""));
+  return wh?{label:d.replace(/\s+/g,"_"), viewport:{width:wh.w, height:wh.h}}:{label:"Desktop_1440x900", viewport:{width:1440,height:900}};
+});
 
-// デバイスコンテキスト用の定義を用意
-function resolveViewports(list){
-  return list.map(item=>{
-    if (pwDevices[item]) return { kind:"preset", label:item, preset: pwDevices[item] };
-    const wh = parseWxH(item);
-    if (wh) return { kind:"size", label:`${wh.width}x${wh.height}`, viewport: wh };
-    // 文言付き "Desktop 1440x900" など
-    const wh2 = parseWxH(item.replace(/[^\dx]/gi,""));
-    if (wh2) return { kind:"size", label:item.replace(/\s+/g,"_"), viewport: wh2 };
-    // デフォルト
-    return { kind:"size", label:"Desktop_1440x900", viewport:{width:1440,height:900} };
-  });
-}
+const norm = (u,b)=>{ try{ return new URL(u,b).toString().replace(/#.*$/,""); }catch{ return null; } };
+const safe = u => { const {host,pathname}=new URL(u); const p=pathname==="/"?"root":pathname.replace(/[^a-z0-9/_-]+/gi,"_"); return (host+"__"+p).slice(0,180); };
 
-const VIEWPORTS = resolveViewports(DEVICES_RAW);
-
-// URL正規化＆フィルタ
-function normalizeUrl(u, base){
-  try { return new URL(u, base).toString().replace(/#.*$/,""); }
-  catch { return null; }
-}
-
-function shouldVisit(targetUrl, startUrl){
-  const t = new URL(targetUrl);
-  const s = new URL(startUrl);
-  if (SAME_HOST_ONLY && t.host !== s.host) return false;
-
-  if (PATH_PREFIX_MODE === "start"){
-    // 開始URLのパスをprefixとして扱う
-    const prefix = s.pathname.endsWith("/") ? s.pathname : s.pathname + "/";
-    // 例: start=/docs/ のとき /docs/ か /docs で始まるのみ許可
-    if (prefix !== "/" && !(t.pathname + "/").startsWith(prefix)) return false;
-  }
-  return ["http:", "https:"].includes(t.protocol);
-}
-
-function safeNameFromUrl(u) {
-  const { host, pathname } = new URL(u);
-  const p = pathname === "/" ? "root" : pathname.replace(/[^a-z0-9/_-]+/gi, "_").replace(/^_+|_+$/g,"");
-  return (host + "__" + p).slice(0,180);
-}
-
-async function ensureDir(dir){ await fs.mkdir(dir, { recursive: true }); }
-
-async function scrollForLazyLoad(page){
-  await page.evaluate(async () => {
-    const h = document.body ? document.body.scrollHeight : 0;
-    window.scrollTo(0, h);
-    await new Promise(r => setTimeout(r, 250));
-    window.scrollTo(0, 0);
-    await new Promise(r => setTimeout(r, 150));
-  });
-}
-
-// メイン
 async function main(){
-  await ensureDir(OUT_DIR);
-
-  // ブラウザ1つを共有し、デバイスごとにContext/Pageを再利用
+  await fs.mkdir(OUT_DIR,{recursive:true});
   const browser = await chromium.launch();
-
-  const contexts = [];
-  for (const vp of VIEWPORTS){
-    if (vp.kind === "preset"){
-      const ctx = await browser.newContext(vp.preset);
-      contexts.push({ ...vp, ctx, page: await ctx.newPage() });
-    } else {
-      const ctx = await browser.newContext({ viewport: vp.viewport });
-      contexts.push({ ...vp, ctx, page: await ctx.newPage() });
-    }
+  const ctxs = [];
+  for(const v of vpList){
+    const ctx = v.preset ? await browser.newContext(v.preset) : await browser.newContext({viewport:v.viewport});
+    ctxs.push({label:v.label, page: await ctx.newPage(), close: ()=>ctx.close()});
   }
 
+  const q = START_URLS.map(u=>({url:u, depth:0}));
   const visited = new Set();
-  const queue = [];
+  const captured = []; // manifest用
 
-  // 開始URLごとに、パスプレフィックス判定基準として保持
-  const startEntries = START_URLS.map(u => ({ start:u, depth:0 }));
-  for (const e of startEntries) queue.push(e);
+  while(q.length && captured.length<MAX_PAGES){
+    const {url, depth} = q.shift();
+    if (visited.has(url)) continue;
+    visited.add(url);
 
-  let visitedCount = 0;
-
-  while (queue.length && visitedCount < MAX_PAGES){
-    const current = queue.shift(); // { start, url?, depth }
-    const currentUrl = current.url ?? current.start;
-    const depth = current.depth;
-
-    if (visited.has(currentUrl)) continue;
-    visited.add(currentUrl);
-
-    // ページへ移動してスクショ
-    for (const dev of contexts){
+    for(const dev of ctxs){
       try{
-        await dev.page.goto(currentUrl, { waitUntil: "networkidle", timeout: 45000 });
-        await scrollForLazyLoad(dev.page);
-
-        const name = safeNameFromUrl(currentUrl);
-        const file = path.join(OUT_DIR, `${name}__${dev.label}${FULL_PAGE ? "__full" : ""}.png`);
-        await ensureDir(path.dirname(file));
-
-        await dev.page.screenshot({ path: file, fullPage: FULL_PAGE });
-        // 少し待つ（負荷＆ブロック回避）
-        if (WAIT_BETWEEN_MS) await new Promise(r => setTimeout(r, WAIT_BETWEEN_MS));
-      }catch(err){
-        console.error(`[warn] ${dev.label} failed on ${currentUrl}:`, err.message || err);
-      }
+        await dev.page.goto(url,{waitUntil:"networkidle", timeout:45000});
+        await dev.page.evaluate(async()=>{ const h=document.body?.scrollHeight||0; window.scrollTo(0,h); await new Promise(r=>setTimeout(r,250)); window.scrollTo(0,0); });
+        const base = safe(url);
+        const file = `${base}__${dev.label}${FULL_PAGE?"__full":""}.png`;
+        const out = path.join(OUT_DIR, file);
+        await fs.writeFile(out, await dev.page.screenshot({fullPage:FULL_PAGE}));
+        captured.push({ url, device: dev.label, file: file });
+      }catch(e){ console.error(`[warn] ${dev.label}: ${url}`, e.message); }
     }
 
-    visitedCount++;
-
-    // 深さ制限
-    if (depth >= MAX_DEPTH) continue;
-
-    // リンク抽出（同一ページから一度だけ抽出すればよい→先頭のコンテキストでOK）
-    let links = [];
-    try{
-      links = await contexts[0].page.$$eval("a[href]", as => as.map(a => a.getAttribute("href")));
-    }catch{}
-
-    // キューに追加
-    const base = currentUrl;
-    for (const raw of links){
-      const abs = normalizeUrl(raw, base);
-      if (!abs) continue;
-      if (visited.has(abs)) continue;
-
-      // どの開始URLセットに属するかを決定（最初にマッチしたstartを使う）
-      let startForThis = null;
-      for (const se of startEntries){
-        if (shouldVisit(abs, se.start)){
-          startForThis = se.start;
-          break;
+    if (depth<MAX_DEPTH){
+      try{
+        const links = await ctxs[0].page.$$eval("a[href]", as => as.map(a=>a.getAttribute("href")));
+        for(const l of links){
+          const abs = norm(l, url);
+          if (abs && !visited.has(abs)) q.push({url:abs, depth:depth+1});
         }
-      }
-      if (!startForThis) continue;
-
-      queue.push({ start: startForThis, url: abs, depth: depth + 1 });
-      if (queue.length + visited.size >= MAX_PAGES) break;
+      }catch{}
     }
   }
 
-  // 後片付け
-  for (const dev of contexts){
-    await dev.ctx.close();
-  }
+  for(const c of ctxs) await c.close();
   await browser.close();
 
-  console.log(`Done. visited=${visitedCount}, out=${OUT_DIR}`);
+  await fs.writeFile(path.join(OUT_DIR,"manifest.json"), JSON.stringify({ generatedAt: new Date().toISOString(), items: captured }, null, 2));
 }
-
-main().catch(e => {
-  console.error(e);
-  process.exit(1);
-});
+main();

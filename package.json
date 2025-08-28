@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "capture": "node capture.mjs"
+    "capture": "node capture.mjs",
+    "build-manifest": "node manifest.mjs"
   },
   "devDependencies": {
     "playwright": "^1.46.0"
