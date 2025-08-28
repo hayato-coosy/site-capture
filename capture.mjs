@@ -1,9 +1,9 @@
 // capture.mjs
-// - 配下ページのクロール
-// - 2xなどの高DPI撮影 (SCALE)
-// - lazy-load起動のためのゆっくりオートスクロール
-// - <img> と background-image の実読み込み完了を待機
-// - ファイル名はフラット化（/ を _ に置換）
+// - 配下ページのクロール（MAX_DEPTH, SAME_HOST_ONLY, PATH_PREFIX_MODE）
+// - 高DPI撮影 (SCALE)
+// - lazy-load発火のためのオートスクロール + 画像読み込み完了待機
+// - ファイル名モード切替：flat / tree（FILENAME_MODE）
+// - manifest.json には OUT_DIR からの相対パスを記録
 
 import { chromium, devices as pwDevices } from "playwright";
 import fs from "fs/promises";
@@ -24,9 +24,10 @@ const MAX_DEPTH        = parseInt(env("MAX_DEPTH","2"),10);
 const MAX_PAGES        = parseInt(env("MAX_PAGES","300"),10);
 const WAIT_BETWEEN_MS  = parseInt(env("WAIT_BETWEEN_MS","200"),10);
 
-const OUT_DIR = env("OUT_DIR","public");
-const SCALE   = Math.max(1, parseInt(env("SCALE","2"),10));
-const EXTRA_WAIT_MS = parseInt(env("EXTRA_WAIT_MS","0"),10); // 任意の余裕待ち
+const OUT_DIR        = env("OUT_DIR","public");
+const SCALE          = Math.max(1, parseInt(env("SCALE","2"),10));
+const EXTRA_WAIT_MS  = parseInt(env("EXTRA_WAIT_MS","0"),10); // 任意の余裕待ち
+const FILENAME_MODE  = (env("FILENAME_MODE","flat").toLowerCase()); // "flat" | "tree"
 
 // ====== ユーティリティ ======
 const parseWxH = s => { const m = s.match(/(\d+)\s*x\s*(\d+)/i); return m?{w:+m[1],h:+m[2]}:null; };
@@ -41,7 +42,7 @@ function resolveViewports(list){
 }
 const VIEWPORTS = resolveViewports(DEVICES_RAW);
 
-// ハッシュは落として正規化（SPAで # を別ページにしたいなら .replace を外す）
+// ハッシュは落として正規化（SPAの # を別ページにしたいなら .replace を外す）
 const normalizeUrl = (u,b)=>{ try{ return new URL(u,b).toString().replace(/#.*$/,""); }catch{ return null; } };
 
 function shouldVisit(targetUrl, startUrl){
@@ -55,16 +56,32 @@ function shouldVisit(targetUrl, startUrl){
   return true;
 }
 
-// ファイル名をフラット化（/ を _ に）
-const safeName = u => {
+// ====== 保存パスを決める（flat / tree 切替） ======
+function buildSavePath(u, deviceLabel, scale, fullPage, mode="flat") {
   const { host, pathname } = new URL(u);
-  const p = pathname === "/" ? "root" : pathname.replace(/[^a-z0-9_-]+/gi,"_"); // "/" も "_" に
-  return (host + "__" + p).slice(0,180);
-};
 
-const sleep = ms => new Promise(r=>setTimeout(r, ms));
+  if (mode === "tree") {
+    // ディレクトリ構造を保持
+    let dir = path.join(OUT_DIR, host, pathname);
+    // pathname が "/" の場合は末尾スラッシュを外す & root にする
+    if (pathname === "/") {
+      dir = path.join(OUT_DIR, host);
+    } else if (dir.endsWith("/")) {
+      dir = dir.slice(0, -1);
+    }
+    const base = pathname === "/" ? "root" : path.basename(pathname);
+    const fileName = `${base}__${deviceLabel}${fullPage ? "__full" : ""}@${scale}x.png`;
+    return path.join(dir, fileName);
+  } else {
+    // フラット保存（/ などを _ に）
+    const safePath = (pathname === "/" ? "root" : pathname.replace(/[^a-z0-9_-]+/gi,"_"));
+    const base = (host + "__" + safePath).slice(0,180);
+    const fileName = `${base}__${deviceLabel}${fullPage ? "__full" : ""}@${scale}x.png`;
+    return path.join(OUT_DIR, fileName);
+  }
+}
 
-// ====== 遅延読み込みを発火させる：ゆっくりオートスクロール ======
+// ====== 画像の読み込み支援 ======
 async function autoScroll(page, { step=600, pause=200 } = {}) {
   await page.evaluate(async ({step, pause}) => {
     const sleep = (ms)=>new Promise(r=>setTimeout(r, ms));
@@ -74,7 +91,7 @@ async function autoScroll(page, { step=600, pause=200 } = {}) {
       window.scrollTo(0, y);
       await sleep(pause);
       const newH = document.body?.scrollHeight || h;
-      if (newH > h) h = newH; // 伸びたら追従
+      if (newH > h) h = newH;
     }
     await sleep(pause);
     window.scrollTo(0, 0);
@@ -82,14 +99,13 @@ async function autoScroll(page, { step=600, pause=200 } = {}) {
   }, {step, pause});
 }
 
-// ====== 画像の実読み込み完了を待つ（<img> と background-image） ======
 async function waitForImages(page, timeoutMs = 30000) {
   await page.waitForFunction(async () => {
-    // <img> が全て読み込み済みかチェック
+    // <img> 完了チェック
     const imgs = Array.from(document.images || []);
     const allImgOk = imgs.every(img => img.complete && img.naturalWidth > 0);
 
-    // background-image の url() を拾ってロード
+    // background-image の url() をロード
     const urls = new Set();
     const nodes = Array.from(document.querySelectorAll("*"));
     for (const el of nodes) {
@@ -97,21 +113,19 @@ async function waitForImages(page, timeoutMs = 30000) {
       const m = bg && bg.match(/url\((['"]?)(.*?)\1\)/);
       if (m && m[2]) urls.add(m[2]);
     }
-
     const loadOne = (src) => new Promise(res => {
       const im = new Image();
       im.onload = () => res(true);
-      im.onerror = () => res(true); // エラーでも先に進む
+      im.onerror = () => res(true);
       im.src = src;
     });
-
-    if (urls.size) {
-      await Promise.all(Array.from(urls).map(loadOne));
-    }
+    if (urls.size) await Promise.all(Array.from(urls).map(loadOne));
 
     return allImgOk;
   }, { timeout: timeoutMs });
 }
+
+const sleep = ms => new Promise(r=>setTimeout(r, ms));
 
 // ====== メイン ======
 async function main(){
@@ -148,19 +162,25 @@ async function main(){
       try{
         await dev.page.goto(url, { waitUntil:"networkidle", timeout: 60000 });
 
-        // 画像の取りこぼし対策（順番が大事）
+        // 画像の取りこぼし対策
         await dev.page.waitForLoadState('networkidle');
         await autoScroll(dev.page, { step: 600, pause: 200 });
-        await dev.page.waitForLoadState('networkidle'); // 二重アイドル待ち
+        await dev.page.waitForLoadState('networkidle');
         await waitForImages(dev.page, 45000);
         if (EXTRA_WAIT_MS) await sleep(EXTRA_WAIT_MS);
 
-        const base = safeName(url);
-        const file = `${base}__${dev.label}${FULL_PAGE?"__full":""}@${SCALE}x.png`;
-        const out = path.join(OUT_DIR, file);
+        const out = buildSavePath(url, dev.label, SCALE, FULL_PAGE, FILENAME_MODE);
+        await fs.mkdir(path.dirname(out), { recursive: true });
         const buf = await dev.page.screenshot({ type:"png", fullPage: FULL_PAGE });
         await fs.writeFile(out, buf);
-        captured.push({ url, device: dev.label, scale: SCALE, file });
+
+        // manifest は OUT_DIR からの相対パスにして Pages で配れるように
+        captured.push({
+          url,
+          device: dev.label,
+          scale: SCALE,
+          file: path.relative(OUT_DIR, out)
+        });
 
         if (WAIT_BETWEEN_MS) await sleep(WAIT_BETWEEN_MS);
       } catch(e) {
