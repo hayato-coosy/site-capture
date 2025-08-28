@@ -1,0 +1,80 @@
+name: Capture Screenshots (crawl)
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_urls:
+        description: "開始URL（カンマ区切り可）"
+        required: true
+      devices:
+        description: "デバイス/解像度（例: 'Desktop 1440x900,iPhone 13,375x812'）"
+        required: false
+        default: "Desktop 1440x900,iPhone 13,iPad Air"
+      full_page:
+        description: "フルページで撮影するか（true/false）"
+        required: false
+        default: "true"
+      same_host_only:
+        description: "開始URLと同一ホストのみ巡回（true/false）"
+        required: false
+        default: "true"
+      path_prefix_mode:
+        description: "開始URLのパス配下のみ: start / 制限なし: none"
+        required: false
+        default: "start"
+      max_depth:
+        description: "最大深さ（0=開始ページのみ）"
+        required: false
+        default: "2"
+      max_pages:
+        description: "最大ページ数（総数）"
+        required: false
+        default: "50"
+      wait_between_ms:
+        description: "各ページ撮影間の待機ms"
+        required: false
+        default: "300"
+  schedule:
+    # 例：毎週月曜 09:00 JST（= 00:00 UTC）に回す
+    - cron: "0 0 * * 1"
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps
+        run: |
+          npm ci
+          npx playwright install --with-deps
+
+      - name: Crawl & Capture
+        run: npm run capture
+        env:
+          START_URLS: ${{ inputs.start_urls }}
+          DEVICES: ${{ inputs.devices }}
+          FULL_PAGE: ${{ inputs.full_page }}
+          SAME_HOST_ONLY: ${{ inputs.same_host_only }}
+          PATH_PREFIX_MODE: ${{ inputs.path_prefix_mode }}
+          MAX_DEPTH: ${{ inputs.max_depth }}
+          MAX_PAGES: ${{ inputs.max_pages }}
+          WAIT_BETWEEN_MS: ${{ inputs.wait_between_ms }}
+          OUT_DIR: screenshots
+
+      - name: Upload screenshots as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots
+          if-no-files-found: warn
