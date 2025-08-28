@@ -48,7 +48,8 @@ function shouldVisit(targetUrl, startUrl){
 }
 const safeName = u => {
   const { host, pathname } = new URL(u);
-  const p = pathname === "/" ? "root" : pathname.replace(/[^a-z0-9/_-]+/gi,"_").replace(/^_+|_+$/g,"");
+  const p = pathname === "/" ? "root"
+    : pathname.replace(/[^a-z0-9_-]+/gi,"_"); // ← "/" も "_" に変換
   return (host + "__" + p).slice(0,180);
 };
 const sleep = ms => new Promise(r=>setTimeout(r, ms));
