@@ -1,8 +1,9 @@
-name: Capture & Publish (simple)
+name: Capture & Publish (safe)
 
 on:
   workflow_dispatch:
     inputs:
+      # --- 基本 ---
       start_urls:
         description: "開始URL（カンマ区切り可）"
         required: true
@@ -14,8 +15,18 @@ on:
         description: "フルページ（true/false）"
         required: false
         default: "true"
+      scale:
+        description: "解像度スケール（1,2,3…）"
+        required: false
+        default: "2"
+      filename_mode:
+        description: "保存方式: flat=フラット / tree=ディレクトリ構造保持"
+        required: false
+        default: "flat"
+
+      # --- 範囲・レート制御 ---
       same_host_only:
-        description: "同一ホストのみ巡回（true/false）"
+        description: "同一ホストのみ（true/false）"
         required: false
         default: "true"
       path_prefix_mode:
@@ -23,25 +34,59 @@ on:
         required: false
         default: "start"
       max_depth:
-        description: "最大深さ（0=開始ページのみ）"
+        description: "最大深さ（0=開始のみ, 1=子, 2=孫…）"
         required: false
-        default: "2"
+        default: "1"
       max_pages:
-        description: "最大ページ数（総数のブレーキ）"
+        description: "最大ページ数（総ブレーキ）"
         required: false
-        default: "300"
-      filename_mode:
-        description: "ファイル名モード: flat=フラット / tree=ディレクトリ構造保持"
-        required: false
-        default: "flat"
-      scale:
-        description: "解像度スケール（1=等倍, 2=2倍, 3=3倍）"
-        required: false
-        default: "2"
+        default: "100"
       wait_between_ms:
-        description: "撮影間隔ms（ブロック回避用）"
+        description: "各ページ撮影間の待機ms（SAFEで自動引上げあり）"
         required: false
-        default: "200"
+        default: "1000"
+
+      # --- セーフティ ---
+      safe_mode:
+        description: "安全モード（控えめ設定を自動適用）"
+        required: false
+        default: "true"
+      respect_robots:
+        description: "robots.txt を尊重（Disallow / Crawl-delay）"
+        required: false
+        default: "true"
+      skip_url_patterns:
+        description: "除外パターン（カンマ区切り / 正規表現可）"
+        required: false
+        default: "login,logout,signin,signup,cart,checkout,account,mypage,admin,settings,profile"
+      mask_selectors:
+        description: "スクショでマスクするCSSセレクタ（カンマ区切り）"
+        required: false
+        default: "input[type='password'],input[type='email'],input[name*='mail'],input[name*='phone'],.email,.tel,.phone,[data-sensitive]"
+      sitemap_url:
+        description: "sitemap.xml のURL（任意：指定時はこれを優先投入）"
+        required: false
+        default: ""
+
+      # --- ナビゲーション耐性 ---
+      goto_timeout_ms:
+        description: "ページ遷移タイムアウト(ms)"
+        required: false
+        default: "120000"
+      retries:
+        description: "遷移失敗時のリトライ回数"
+        required: false
+        default: "1"
+      extra_wait_ms:
+        description: "撮影直前の追加待機ms（任意）"
+        required: false
+        default: "0"
+
+      # --- 出力先 ---
+      publish_target:
+        description: "出力先: artifact（内部配布） | pages（公開）"
+        required: false
+        default: "artifact"
 
 permissions:
   contents: read
@@ -69,24 +114,51 @@ jobs:
       - name: Capture screenshots
         run: npm run capture
         env:
+          # 基本
           START_URLS: ${{ inputs.start_urls }}
           DEVICES: ${{ inputs.devices }}
           FULL_PAGE: ${{ inputs.full_page }}
+          SCALE: ${{ inputs.scale }}
+          FILENAME_MODE: ${{ inputs.filename_mode }}
+          OUT_DIR: public
+
+          # 範囲・レート
           SAME_HOST_ONLY: ${{ inputs.same_host_only }}
           PATH_PREFIX_MODE: ${{ inputs.path_prefix_mode }}
           MAX_DEPTH: ${{ inputs.max_depth }}
           MAX_PAGES: ${{ inputs.max_pages }}
-          SCALE: ${{ inputs.scale }}
-          FILENAME_MODE: ${{ inputs.filename_mode }}
           WAIT_BETWEEN_MS: ${{ inputs.wait_between_ms }}
-          OUT_DIR: public
 
+          # セーフティ
+          SAFE_MODE: ${{ inputs.safe_mode }}
+          RESPECT_ROBOTS: ${{ inputs.respect_robots }}
+          SKIP_URL_PATTERNS: ${{ inputs.skip_url_patterns }}
+          MASK_SELECTORS: ${{ inputs.mask_selectors }}
+          SITEMAP_URL: ${{ inputs.sitemap_url }}
+
+          # ナビゲーション耐性
+          GOTO_TIMEOUT_MS: ${{ inputs.goto_timeout_ms }}
+          RETRIES: ${{ inputs.retries }}
+          EXTRA_WAIT_MS: ${{ inputs.extra_wait_ms }}
+
+      # 出力：artifact（内部配布）
+      - name: Upload artifact (public/)
+        if: ${{ inputs.publish_target == 'artifact' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: public
+          if-no-files-found: warn
+
+      # 出力：GitHub Pages（公開）
       - name: Upload Pages artifact
+        if: ${{ inputs.publish_target == 'pages' }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: public
 
   deploy:
+    if: ${{ inputs.publish_target == 'pages' }}
     needs: run
     runs-on: ubuntu-latest
     permissions:
