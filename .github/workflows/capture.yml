@@ -1,68 +1,47 @@
-name: Capture & Publish (safe)
+name: Capture & Publish (safe, <=10 inputs)
 
 on:
   workflow_dispatch:
     inputs:
-      # 1
-      start_urls:
+      start_urls:            # 1
         description: "開始URL（カンマ区切り可）"
         required: true
-      # 2
-      devices:
+      devices:               # 2
         description: "デバイス/解像度（例: 'Desktop 1440x900,iPhone 13,375x812'）"
         required: false
         default: "Desktop 1440x900,iPhone 13"
-      # 3
-      full_page:
-        description: "フルページ（true/false）"
-        required: false
-        default: "true"
-      # 4
-      scale:
-        description: "解像度スケール（1,2,3…）"
-        required: false
-        default: "2"
-      # 5
-      filename_mode:
-        description: "保存方式: flat / tree"
+      filename_mode:         # 3
+        description: "保存方式: flat=フラット / tree=ディレクトリ構造保持"
         required: false
         default: "flat"
-      # 6
-      max_depth:
+      max_depth:             # 4
         description: "最大深さ（0=開始のみ, 1=子 …）"
         required: false
         default: "1"
-      # 7
-      max_pages:
-        description: "最大ページ数"
+      max_pages:             # 5
+        description: "最大ページ数（総ブレーキ）"
         required: false
         default: "100"
-      # 8
-      wait_between_ms:
-        description: "各ページ間の待機ms"
+      wait_between_ms:       # 6
+        description: "各ページ撮影間の待機ms（SAFEで自動引上げあり）"
         required: false
         default: "1000"
-      # 9
-      publish_target:
-        description: "出力先: artifact | pages"
+      safe_mode:             # 7
+        description: "安全モード（控えめ設定を自動適用） true/false"
+        required: false
+        default: "true"
+      respect_robots:        # 8
+        description: "robots.txt を尊重（Disallow / Crawl-delay） true/false"
+        required: false
+        default: "true"
+      publish_target:        # 9
+        description: "出力先: artifact（内部配布） | pages（公開）"
         required: false
         default: "artifact"
-      # 10（ここに細かい設定をJSONで）
-      options_json:
-        description: >-
-          追加オプション(JSON)。例:
-          {"safe_mode":true,"respect_robots":true,"same_host_only":true,
-           "path_prefix_mode":"start","skip_url_patterns":"login,cart,blog,news,articles,posts",
-           "mask_selectors":"input[type='password'],input[type='email']",
-           "sitemap_url":"","goto_timeout_ms":120000,"retries":1,"extra_wait_ms":0,
-           "sample_detail_allow":true,"sample_detail_patterns":"blog,news,articles,posts"}
+      scale:                 # 10
+        description: "解像度スケール（1,2,3…）"
         required: false
-        default: >-
-          {"safe_mode":true,"respect_robots":true,"same_host_only":true,
-           "path_prefix_mode":"start","skip_url_patterns":"login,logout,signin,signup,cart,checkout,account,mypage,admin,settings,profile,blog,news,articles,posts",
-           "mask_selectors":"input[type='password'],input[type='email'],input[name*='mail'],input[name*='phone'],.email,.tel,.phone,[data-sensitive]",
-           "sitemap_url":"","goto_timeout_ms":120000,"retries":1,"extra_wait_ms":0,
-           "sample_detail_allow":true,"sample_detail_patterns":"blog,news,articles,posts"}
+        default: "2"
 
 permissions:
   contents: read
@@ -72,6 +51,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -89,21 +69,26 @@ jobs:
       - name: Capture screenshots
         run: npm run capture
         env:
-          # 基本
+          # 必須/主要入力
           START_URLS:       ${{ inputs.start_urls }}
           DEVICES:          ${{ inputs.devices }}
-          FULL_PAGE:        ${{ inputs.full_page }}
-          SCALE:            ${{ inputs.scale }}
           FILENAME_MODE:    ${{ inputs.filename_mode }}
-          OUT_DIR:          public
           MAX_DEPTH:        ${{ inputs.max_depth }}
           MAX_PAGES:        ${{ inputs.max_pages }}
           WAIT_BETWEEN_MS:  ${{ inputs.wait_between_ms }}
+          SAFE_MODE:        ${{ inputs.safe_mode }}
+          RESPECT_ROBOTS:   ${{ inputs.respect_robots }}
           PUBLISH_TARGET:   ${{ inputs.publish_target }}
+          SCALE:            ${{ inputs.scale }}
 
-          # 追加（JSON一括）
-          OPTIONS_JSON:     ${{ inputs.options_json }}
+          # 既定（変更したければ capture.mjs のデフォルトを編集）
+          OUT_DIR:          public
+          FULL_PAGE:        "true"           # 必要なら capture.mjs 側で切替可
+          # SAME_HOST_ONLY, PATH_PREFIX_MODE, SKIP_URL_PATTERNS,
+          # SAMPLE_DETAIL_ALLOW/PATTERNS, MASK_SELECTORS, TIMEOUT/RETRY
+          # は capture.mjs のデフォルトが有効になります
 
+      # 出力：artifact（内部配布）
       - name: Upload artifact (public/)
         if: ${{ inputs.publish_target == 'artifact' }}
         uses: actions/upload-artifact@v4
@@ -112,6 +97,7 @@ jobs:
           path: public
           if-no-files-found: warn
 
+      # 出力：GitHub Pages（公開）
       - name: Upload Pages artifact
         if: ${{ inputs.publish_target == 'pages' }}
         uses: actions/upload-pages-artifact@v3
