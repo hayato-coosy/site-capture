@@ -1,4 +1,4 @@
-name: Capture & Publish (safe, <=10 inputs)
+name: Capture & Publish
 
 on:
   workflow_dispatch:
@@ -14,34 +14,34 @@ on:
         description: "保存方式: flat=フラット / tree=ディレクトリ構造保持"
         required: false
         default: "flat"
-      max_depth:             # 4
-        description: "最大深さ（0=開始のみ, 1=子 …）"
-        required: false
-        default: "1"
-      max_pages:             # 5
-        description: "最大ページ数（総ブレーキ）"
-        required: false
-        default: "100"
-      wait_between_ms:       # 6
-        description: "各ページ撮影間の待機ms（SAFEで自動引上げあり）"
-        required: false
-        default: "1000"
-      safe_mode:             # 7
-        description: "安全モード（控えめ設定を自動適用） true/false"
-        required: false
-        default: "true"
-      respect_robots:        # 8
-        description: "robots.txt を尊重（Disallow / Crawl-delay） true/false"
-        required: false
-        default: "true"
-      publish_target:        # 9
-        description: "出力先: artifact（内部配布） | pages（公開）"
-        required: false
-        default: "artifact"
-      scale:                 # 10
+      scale:                 # 4
         description: "解像度スケール（1,2,3…）"
         required: false
         default: "2"
+      max_depth:             # 5
+        description: "最大深さ（0=開始のみ, 1=子 …）"
+        required: false
+        default: "1"
+      max_pages:             # 6
+        description: "最大ページ数（総ブレーキ）"
+        required: false
+        default: "100"
+      wait_between_ms:       # 7
+        description: "各ページ撮影間の待機ms（SAFEで自動引上げあり）"
+        required: false
+        default: "1000"
+      safe_mode:             # 8
+        description: "安全モード（控えめ設定を自動適用） true/false"
+        required: false
+        default: "true"
+      respect_robots:        # 9
+        description: "robots.txt を尊重（Disallow / Crawl-delay） true/false"
+        required: false
+        default: "true"
+      publish_target:        # 10
+        description: "出力先: artifact（内部配布） | pages（公開）"
+        required: false
+        default: "artifact"
 
 permissions:
   contents: read
