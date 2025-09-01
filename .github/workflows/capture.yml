@@ -80,16 +80,17 @@ jobs:
           RESPECT_ROBOTS:   ${{ inputs.respect_robots }}
           PUBLISH_TARGET:   ${{ inputs.publish_target }}
           SCALE:            ${{ inputs.scale }}
-          LOGIN_MODE: "cookies"
-          LOGIN_COOKIES_JSON: ${{ secrets.LOGIN_COOKIES_JSON }}
-
           # 既定（変更したければ capture.mjs のデフォルトを編集）
           OUT_DIR:          public
           FULL_PAGE:        "true"           # 必要なら capture.mjs 側で切替可
           # SAME_HOST_ONLY, PATH_PREFIX_MODE, SKIP_URL_PATTERNS,
           # SAMPLE_DETAIL_ALLOW/PATTERNS, MASK_SELECTORS, TIMEOUT/RETRY
           # は capture.mjs のデフォルトが有効になります
-
+          LOGIN_MODE: "cookies"
+          LOGIN_COOKIES_JSON: ${{ secrets.LOGIN_COOKIES_JSON }}
+          AUTH_CHECK_URL: "https://example.com/mypage"
+          AUTH_CHECK_SELECTOR: ".user-name"
+          
       # 出力：artifact（内部配布）
       - name: Upload artifact (public/)
         if: ${{ inputs.publish_target == 'artifact' }}
