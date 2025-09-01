@@ -87,7 +87,7 @@ function buildSavePath(u, deviceLabel, scale, fullPage, mode="flat") {
     let dir = path.join(OUT_DIR, host, pathname);
     if (pathname === "/") {
       dir = path.join(OUT_DIR, host);
-    } else if (dir.endsWith("/")) {
+    } else if (dir.endsWith(path.sep)) {
       dir = dir.slice(0, -1);
     }
     const base = pathname === "/" ? "root" : path.basename(pathname);
