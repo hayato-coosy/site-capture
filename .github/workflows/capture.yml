@@ -80,6 +80,8 @@ jobs:
           RESPECT_ROBOTS:   ${{ inputs.respect_robots }}
           PUBLISH_TARGET:   ${{ inputs.publish_target }}
           SCALE:            ${{ inputs.scale }}
+          LOGIN_MODE: "cookies"
+          LOGIN_COOKIES_JSON: ${{ secrets.LOGIN_COOKIES_JSON }}
 
           # 既定（変更したければ capture.mjs のデフォルトを編集）
           OUT_DIR:          public
